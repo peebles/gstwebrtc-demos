@@ -47,12 +47,14 @@ static enum AppState app_state = 0;
 static const gchar *peer_id = NULL;
 static const gchar *server_url = "wss://webrtc.nirbheek.in:8443";
 static gboolean disable_ssl = FALSE;
+static gboolean with_audio = FALSE;
 
 static GOptionEntry entries[] =
 {
   { "peer-id", 0, 0, G_OPTION_ARG_STRING, &peer_id, "String ID of the peer to connect to", "ID" },
   { "server", 0, 0, G_OPTION_ARG_STRING, &server_url, "Signalling server to connect to", "URL" },
   { "disable-ssl", 0, 0, G_OPTION_ARG_NONE, &disable_ssl, "Disable ssl", NULL },
+  { "with_audio", 0, 0, G_OPTION_ARG_NONE, &with_audio, "Enable audio track", NULL },
   { NULL },
 };
 
@@ -274,6 +276,7 @@ on_negotiation_needed (GstElement * element, gpointer user_data)
 #define STUN_SERVER " stun-server=stun://stun.l.google.com:19302 "
 #define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload="
 #define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=VP8,payload="
+#define RTP_CAPS_H264 "application/x-rtp,media=video,encoding-name=H264,payload="
 
 static void
 data_channel_on_error (GObject * dc, gpointer user_data)
@@ -329,13 +332,24 @@ start_pipeline (void)
   GstStateChangeReturn ret;
   GError *error = NULL;
 
-  pipe1 =
+  if ( with_audio ) {
+    pipe1 =
       gst_parse_launch ("webrtcbin bundle-policy=max-bundle name=sendrecv " STUN_SERVER
-      "videotestsrc is-live=true pattern=ball ! videoconvert ! queue ! vp8enc deadline=1 ! rtpvp8pay ! "
-      "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
+      "rpicamsrc bitrate=600000 annotation-mode=12 preview=false ! video/x-h264,profile=constrained-baseline,width=640,height=360,level=3.0 ! queue max-size-time=100000000 ! h264parse ! "
+      "rtph264pay config-interval=-1 name=payloader ! "
+      RTP_CAPS_H264 "96 ! sendrecv. "
       "audiotestsrc is-live=true wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
       "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
       &error);
+  }
+  else {
+    pipe1 =
+      gst_parse_launch ("webrtcbin bundle-policy=max-bundle name=sendrecv " STUN_SERVER
+      "rpicamsrc bitrate=600000 annotation-mode=12 preview=false ! video/x-h264,profile=constrained-baseline,width=640,height=360,level=3.0 ! queue max-size-time=100000000 ! h264parse ! "
+      "rtph264pay config-interval=-1 name=payloader ! "
+      RTP_CAPS_H264 "96 ! sendrecv. ",
+      &error);
+  }
 
   if (error) {
     g_printerr ("Failed to parse launch: %s\n", error->message);
@@ -355,9 +369,6 @@ start_pipeline (void)
    * added by us too, see on_server_message() */
   g_signal_connect (webrtc1, "on-ice-candidate",
       G_CALLBACK (send_ice_candidate_message), NULL);
-
-  gst_element_set_state (pipe1, GST_STATE_READY);
-
   g_signal_emit_by_name (webrtc1, "create-data-channel", "channel", NULL,
       &send_channel);
   if (send_channel) {

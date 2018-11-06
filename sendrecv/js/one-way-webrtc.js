@@ -83,11 +83,11 @@ function onIncomingSDP(sdp) {
         if (sdp.type != "offer")
             return;
         setStatus("Got SDP offer");
-        local_stream_promise.then((stream) => {
+        //local_stream_promise.then((stream) => {
             setStatus("Got local stream, creating answer");
             peer_connection.createAnswer()
             .then(onLocalDescription).catch(setError);
-        }).catch(setError);
+        //}).catch(setError);
     }).catch(setError);
 }
 
@@ -174,6 +174,9 @@ function getLocalStream() {
         constraints = default_constraints;
     }
     console.log('constraints:', JSON.stringify(constraints));
+
+    // DONT ADD LOCAL MEDIA!!!
+    return null;
 
     // Add local stream
     if (navigator.mediaDevices.getUserMedia) {
@@ -279,6 +282,13 @@ function createCall(msg) {
     console.log('Creating RTCPeerConnection');
 
     peer_connection = new RTCPeerConnection(rtc_configuration);
+
+    // We only want to receive a/v, not send it
+    peer_connection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    });
+
     send_channel = peer_connection.createDataChannel('label', null);
     send_channel.onopen = handleDataChannelOpen;
     send_channel.onmessage = handleDataChannelMessageReceived;
@@ -287,12 +297,15 @@ function createCall(msg) {
     peer_connection.ondatachannel = onDataChannel;
     peer_connection.onaddstream = onRemoteStreamAdded;
     /* Send our video/audio to the other peer */
+    /*
     local_stream_promise = getLocalStream().then((stream) => {
-        console.log('Adding local stream');
-        peer_connection.addStream(stream);
+        if ( stream ) {
+          console.log('Adding local stream');
+          peer_connection.addStream(stream);
+        }
         return stream;
     }).catch(setError);
-
+    */
     if (!msg.sdp) {
         console.log("WARNING: First message wasn't an SDP message!?");
     }
